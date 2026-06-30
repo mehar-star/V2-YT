@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="lock.js"></script>
+<script src="/api/config"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0b">
+<title>Journal — Mehar's Health Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sync.js" defer></script>
+<script src="topbar.js" defer></script>
+<style>
+  :root {
+    --bg: #0a0a0b;
+    --bg-card: #111113;
+    --text-1: #ffffff;
+    --text-2: rgba(255,255,255,0.6);
+    --text-3: rgba(255,255,255,0.4);
+    --text-4: rgba(255,255,255,0.25);
+    --border: rgba(255,255,255,0.06);
+    --border-strong: rgba(255,255,255,0.14);
+    --accent: #6ee7b7;
+    --font: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: radial-gradient(ellipse 80% 60% at 50% 0%, #14141a 0%, #0a0a0b 60%);
+    color: var(--text-1);
+    font-family: var(--font);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  .page { max-width: 720px; margin: 0 auto; padding: 22px 16px 40px; }
+
+  .j-head { margin-bottom: 18px; }
+  .j-title { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
+  .j-date {
+    font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3);
+    margin-top: 6px;
+  }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 18px 16px;
+    margin-bottom: 14px;
+  }
+  .card-label {
+    font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-3);
+    margin-bottom: 12px;
+  }
+
+  /* Behavior chips */
+  .j-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .j-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 12px; border-radius: 999px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    color: var(--text-2);
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+  }
+  .j-chip:active { transform: scale(0.96); }
+  .j-chip .j-chip-emoji { font-size: 15px; }
+  .j-chip.on {
+    background: rgba(110,231,183,0.14);
+    border-color: rgba(110,231,183,0.4);
+    color: #d6fcec;
+  }
+  .j-chip .j-chip-val {
+    font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+    color: var(--accent); margin-left: 2px;
+  }
+  .j-chip-empty { font-size: 12px; color: var(--text-4); font-style: italic; padding: 4px 0; }
+
+  .j-addbeh { display: flex; gap: 8px; margin-top: 14px; }
+  .j-addbeh input {
+    flex: 1; min-width: 0;
+    background: rgba(0,0,0,0.28); border: 1px solid var(--border);
+    color: var(--text-1); font-family: inherit; font-size: 13px;
+    padding: 9px 12px; border-radius: 10px; outline: none;
+  }
+  .j-addbeh input:focus { border-color: rgba(110,231,183,0.35); }
+  .j-addbeh button {
+    flex: 0 0 auto; border: 1px solid var(--border); background: rgba(255,255,255,0.05);
+    color: var(--text-1); border-radius: 10px; padding: 9px 14px;
+    font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .j-addbeh button:hover { background: rgba(255,255,255,0.1); }
+
+  /* Note */
+  .j-note {
+    width: 100%; min-height: 96px; resize: vertical;
+    background: rgba(0,0,0,0.28); border: 1px solid var(--border);
+    color: var(--text-1); font-family: inherit; font-size: 14px; line-height: 1.5;
+    padding: 12px 14px; border-radius: 12px; outline: none;
+  }
+  .j-note:focus { border-color: rgba(110,231,183,0.35); }
+  .j-note::placeholder { color: var(--text-4); }
+  .j-saved { font-size: 11px; color: var(--accent); margin-top: 6px; min-height: 14px; opacity: 0; transition: opacity 0.2s; }
+  .j-saved.show { opacity: 1; }
+
+  .j-hint {
+    font-size: 12px; color: var(--text-3); line-height: 1.5;
+    background: rgba(110,231,183,0.06); border: 1px solid rgba(110,231,183,0.12);
+    border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;
+  }
+  .j-hint b { color: var(--text-2); font-weight: 700; }
+
+  /* History */
+  .j-hist-day { padding: 14px 0; border-bottom: 1px solid var(--border); }
+  .j-hist-day:last-child { border-bottom: none; }
+  .j-hist-date {
+    font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.08em; color: var(--text-3); margin-bottom: 8px;
+  }
+  .j-hist-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .j-hist-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 9px; border-radius: 999px;
+    background: rgba(110,231,183,0.10); border: 1px solid rgba(110,231,183,0.22);
+    color: #cdeede; font-size: 11.5px; font-weight: 600;
+  }
+  .j-hist-note { font-size: 13px; color: var(--text-2); line-height: 1.5; white-space: pre-wrap; }
+  .j-empty { text-align: center; color: var(--text-3); font-size: 13px; font-style: italic; padding: 22px 0; }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="j-head">
+    <h1 class="j-title">Journal</h1>
+    <div class="j-date" id="jDate">—</div>
+  </div>
+
+  <div class="j-hint">
+    Type in the <b>AI bar</b> at the bottom — e.g. <b>"had 2 coffees, meditated 10 min, screens late, felt a 7/10"</b> — and it fills today's journal. Or tap behaviors / write a note below.
+  </div>
+
+  <div class="card">
+    <div class="card-label">Today's behaviors</div>
+    <div class="j-chips" id="jChips"></div>
+    <div class="j-addbeh">
+      <input type="text" id="jAddInput" placeholder="Add a behavior (e.g. Sauna)" autocomplete="off" />
+      <button id="jAddBtn" type="button">+ Add</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Today's note</div>
+    <textarea class="j-note" id="jNote" placeholder="How was the day? Anything worth remembering…"></textarea>
+    <div class="j-saved" id="jSaved">Saved ✓</div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">History</div>
+    <div id="jHistory"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- storage helpers ----
+  function get(k){ try { return JSON.parse(localStorage.getItem(k)); } catch(e){ return null; } }
+  function set(k,v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+
+  // ---- active date (6 AM rollover, matches the rest of the app) ----
+  function pad2(n){ return n<10?('0'+n):(''+n); }
+  function activeDate(){
+    const now = new Date();
+    const d = new Date(now);
+    if (now.getHours() < 6) d.setDate(d.getDate()-1);
+    return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate());
+  }
+  function fmtDate(str){
+    const p = str.split('-'); const d = new Date(+p[0], +p[1]-1, +p[2]);
+    const dows=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const mons=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return dows[d.getDay()]+', '+mons[d.getMonth()]+' '+d.getDate();
+  }
+  function slug(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,''); }
+
+  // ---- behavior registry (grows over time; seeded with common ones) ----
+  const SEED = [
+    { key:'alcohol',    label:'Alcohol',        emoji:'🍺' },
+    { key:'caffeine',   label:'Caffeine',       emoji:'☕' },
+    { key:'meditation', label:'Meditated',      emoji:'🧘' },
+    { key:'screens_late', label:'Screens late', emoji:'📱' },
+    { key:'read',       label:'Read',           emoji:'📖' },
+    { key:'sunlight',   label:'Sunlight',       emoji:'☀️' },
+    { key:'walk',       label:'Walk',           emoji:'🚶' },
+    { key:'cold',       label:'Cold shower',    emoji:'🥶' },
+    { key:'ate_late',   label:'Ate late',       emoji:'🌙' },
+    { key:'stress',     label:'Stressful day',  emoji:'😣' },
+    { key:'social',     label:'Socialised',     emoji:'🫂' },
+    { key:'good_sleep', label:'Slept well',     emoji:'😴' }
+  ];
+  function getBehaviors(){
+    let b = get('journal:behaviors');
+    if (!Array.isArray(b) || !b.length) { b = SEED.slice(); set('journal:behaviors', b); }
+    return b;
+  }
+  function getEntry(date){
+    const e = get('journal:'+date) || {};
+    e.behaviors = e.behaviors || {};
+    if (typeof e.note !== 'string') e.note = '';
+    return e;
+  }
+  function saveEntry(date, e){ e.updatedAt = Date.now(); set('journal:'+date, e); }
+
+  const DATE = activeDate();
+  document.getElementById('jDate').textContent = fmtDate(DATE);
+
+  // ---- render today's behavior chips ----
+  function renderChips(){
+    const beh = getBehaviors();
+    const entry = getEntry(DATE);
+    const wrap = document.getElementById('jChips');
+    wrap.innerHTML = '';
+    beh.forEach(b => {
+      const on = entry.behaviors[b.key] != null && entry.behaviors[b.key] !== false;
+      const val = on && entry.behaviors[b.key] !== true ? entry.behaviors[b.key] : '';
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'j-chip' + (on ? ' on' : '');
+      chip.innerHTML = '<span class="j-chip-emoji">'+(b.emoji||'•')+'</span>'
+        + '<span>'+escapeHtml(b.label)+'</span>'
+        + (val ? '<span class="j-chip-val">'+escapeHtml(String(val))+'</span>' : '');
+      chip.addEventListener('click', () => {
+        const e = getEntry(DATE);
+        if (e.behaviors[b.key] != null && e.behaviors[b.key] !== false) delete e.behaviors[b.key];
+        else e.behaviors[b.key] = true;
+        saveEntry(DATE, e);
+        renderChips();
+        renderHistory();
+      });
+      wrap.appendChild(chip);
+    });
+  }
+
+  // ---- add a custom behavior ----
+  function addBehavior(label){
+    label = (label||'').trim(); if (!label) return;
+    const key = slug(label); if (!key) return;
+    const beh = getBehaviors();
+    if (!beh.find(x => x.key === key)) { beh.push({ key, label, emoji:'•' }); set('journal:behaviors', beh); }
+    const e = getEntry(DATE); e.behaviors[key] = true; saveEntry(DATE, e);
+    renderChips(); renderHistory();
+  }
+  document.getElementById('jAddBtn').addEventListener('click', () => {
+    const inp = document.getElementById('jAddInput');
+    addBehavior(inp.value); inp.value=''; inp.focus();
+  });
+  document.getElementById('jAddInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('jAddBtn').click(); }
+  });
+
+  // ---- note autosave ----
+  const noteEl = document.getElementById('jNote');
+  const savedEl = document.getElementById('jSaved');
+  noteEl.value = getEntry(DATE).note || '';
+  let saveTimer = null;
+  function flashSaved(){ savedEl.classList.add('show'); clearTimeout(flashSaved._t); flashSaved._t = setTimeout(()=>savedEl.classList.remove('show'), 1200); }
+  noteEl.addEventListener('input', () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      const e = getEntry(DATE); e.note = noteEl.value; saveEntry(DATE, e);
+      flashSaved(); renderHistory();
+    }, 500);
+  });
+
+  // ---- history ----
+  function listJournalDates(){
+    const out = [];
+    for (let i=0;i<localStorage.length;i++){
+      const k = localStorage.key(i);
+      if (k && /^journal:\d{4}-\d{2}-\d{2}$/.test(k)) out.push(k.slice('journal:'.length));
+    }
+    return out.sort().reverse();
+  }
+  function renderHistory(){
+    const beh = getBehaviors();
+    const byKey = {}; beh.forEach(b => byKey[b.key] = b);
+    const dates = listJournalDates();
+    const host = document.getElementById('jHistory');
+    if (!dates.length) { host.innerHTML = '<div class="j-empty">No entries yet — type in the AI bar or tap a behavior above.</div>'; return; }
+    host.innerHTML = dates.map(date => {
+      const e = getEntry(date);
+      const chips = Object.keys(e.behaviors||{}).filter(k => e.behaviors[k] != null && e.behaviors[k] !== false).map(k => {
+        const def = byKey[k] || { label:k, emoji:'•' };
+        const v = e.behaviors[k] !== true ? (' ' + e.behaviors[k]) : '';
+        return '<span class="j-hist-chip">'+(def.emoji||'•')+' '+escapeHtml(def.label)+escapeHtml(v)+'</span>';
+      }).join('');
+      const note = (e.note||'').trim();
+      if (!chips && !note) return '';
+      return '<div class="j-hist-day">'
+        + '<div class="j-hist-date">'+fmtDate(date)+(date===DATE?' · TODAY':'')+'</div>'
+        + (chips ? '<div class="j-hist-chips">'+chips+'</div>' : '')
+        + (note ? '<div class="j-hist-note">'+escapeHtml(note)+'</div>' : '')
+        + '</div>';
+    }).join('') || '<div class="j-empty">No entries yet.</div>';
+  }
+
+  function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  // ---- boot + live refresh when the AI bar / sync updates storage ----
+  function renderAll(){ renderChips(); renderHistory(); noteEl.value = getEntry(DATE).note || ''; }
+  renderAll();
+  window.addEventListener('storage', renderAll);
+  window.addEventListener('focus', renderAll);
+})();
+</script>
+
+</body>
+</html>
