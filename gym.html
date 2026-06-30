@@ -1434,6 +1434,34 @@ img, video, canvas, svg { max-width: 100%; }
 
   </div>
 
+  <!-- WHOOP workouts (from WHOOP /activity/workout, cached by health.html) -->
+  <style>
+    .wkw-section { margin: 0 0 16px; }
+    .wkw-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+    .wkw-brand { display:inline-flex; align-items:center; gap:8px; font-size:11px; font-weight:800; letter-spacing:0.14em; text-transform:uppercase; color:var(--text-2); }
+    .wkw-brand-mark { width:18px; height:18px; border-radius:50%; border:1.5px solid var(--text-2); display:inline-flex; align-items:center; justify-content:center; font-size:10px; font-weight:800; }
+    .wkw-sub { font-size:11px; color:var(--text-3); font-family:var(--font-mono); }
+    .wkw-card { background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:14px; margin-bottom:8px; }
+    .wkw-row1 { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:10px; }
+    .wkw-sport { font-size:15px; font-weight:700; color:var(--text-1); }
+    .wkw-when { font-size:11px; color:var(--text-3); font-family:var(--font-mono); margin-top:2px; }
+    .wkw-strain { font-family:var(--font-mono); font-weight:800; font-size:16px; white-space:nowrap; }
+    .wkw-strain span { font-size:9px; color:var(--text-3); font-weight:700; }
+    .wkw-stats { display:flex; flex-wrap:wrap; gap:8px; }
+    .wkw-stat { background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:9px; padding:7px 10px; }
+    .wkw-stat-l { font-size:9px; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-3); }
+    .wkw-stat-v { font-size:13px; font-weight:700; color:var(--text-1); font-variant-numeric:tabular-nums; }
+    .wkw-zones { display:flex; height:6px; border-radius:99px; overflow:hidden; margin-top:10px; background:rgba(255,255,255,0.05); }
+    .wkw-z { height:100%; }
+  </style>
+  <section id="wkwSection" class="wkw-section" style="display:none">
+    <div class="wkw-head">
+      <span class="wkw-brand"><span class="wkw-brand-mark">W</span> WHOOP Workouts</span>
+      <span class="wkw-sub" id="wkwSub"></span>
+    </div>
+    <div id="wkwList"></div>
+  </section>
+
   <div class="po-header">
     <h1 class="po-title" id="appTitle">Progressive Overload Coach</h1>
     <button class="po-icon-btn" id="settingsBtn" title="Settings" aria-label="Settings">
@@ -3694,5 +3722,48 @@ img, video, canvas, svg { max-width: 100%; }
 })();
 </script>
 
+<script>
+/* Render WHOOP workouts from the cache health.html maintains (whoop:workouts). */
+(function(){
+  const host = document.getElementById('wkwList');
+  const section = document.getElementById('wkwSection');
+  if (!host || !section) return;
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function render(){
+    let ws = [];
+    try { ws = JSON.parse(localStorage.getItem('whoop:workouts')) || []; } catch(e){}
+    if (!Array.isArray(ws) || !ws.length) { section.style.display = 'none'; return; }
+    section.style.display = '';
+    document.getElementById('wkwSub').textContent = ws.length + ' recent';
+    const mons = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const whenStr = (iso) => { const d=new Date(iso); const same=d.toDateString()===new Date().toDateString(); const t=d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}); return (same?'Today':(mons[d.getMonth()]+' '+d.getDate()))+' · '+t; };
+    const dur = (ms) => { const m=Math.round(ms/60000); const h=Math.floor(m/60); return h?(h+'h '+(m%60)+'m'):(m+'m'); };
+    const strainColor = (s) => s>=18?'#ff6b6b':s>=14?'#F2A33C':s>=10?'#7DD3FC':'#16e08a';
+    const ZC = ['rgba(255,255,255,0.18)','#7DD3FC','#16e08a','#a3e635','#F2A33C','#ff6b6b'];
+    host.innerHTML = ws.slice(0,12).map(w => {
+      const zones = Array.isArray(w.zones) ? w.zones : [];
+      const zt = zones.reduce((a,b)=>a+(b||0),0);
+      const zbar = zt>0 ? ('<div class="wkw-zones">'+zones.map((z,i)=>'<div class="wkw-z" style="width:'+(100*(z||0)/zt).toFixed(1)+'%;background:'+ZC[i]+'"></div>').join('')+'</div>') : '';
+      const stats = [];
+      if (w.avgHr) stats.push(['Avg HR', w.avgHr+' bpm']);
+      if (w.maxHr) stats.push(['Max HR', w.maxHr+' bpm']);
+      if (w.kcal)  stats.push(['Calories', w.kcal+' kcal']);
+      if (w.distance) stats.push(['Distance', (w.distance/1000).toFixed(2)+' km']);
+      const ms = (w.end && w.start) ? (new Date(w.end)-new Date(w.start)) : 0;
+      return '<div class="wkw-card">'
+        + '<div class="wkw-row1">'
+        +   '<div><div class="wkw-sport">'+esc(w.sport||'Workout')+'</div><div class="wkw-when">'+esc(whenStr(w.start))+' · '+dur(ms)+'</div></div>'
+        +   '<div class="wkw-strain" style="color:'+strainColor(w.strain||0)+'">'+(w.strain!=null?Number(w.strain).toFixed(1):'—')+'<span> strain</span></div>'
+        + '</div>'
+        + (stats.length ? ('<div class="wkw-stats">'+stats.map(s=>'<div class="wkw-stat"><div class="wkw-stat-l">'+s[0]+'</div><div class="wkw-stat-v">'+esc(s[1])+'</div></div>').join('')+'</div>') : '')
+        + zbar
+        + '</div>';
+    }).join('');
+  }
+  render();
+  window.addEventListener('storage', render);
+  window.addEventListener('focus', render);
+})();
+</script>
 </body>
 </html>

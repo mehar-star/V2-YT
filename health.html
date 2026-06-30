@@ -767,10 +767,11 @@ main {
       if (t.expires && Date.now() > t.expires - 60000) { const n = await refreshTok(t); if (n) t = n; }
       showErr('');
       try {
-        const [rec, sleep, cycle] = await Promise.all([
+        const [rec, sleep, cycle, workout] = await Promise.all([
           whFetch('/recovery?limit=25', t).catch((e)=>{console.error('[whoop] recovery', e.message); return null;}),
           whFetch('/activity/sleep?limit=25', t).catch((e)=>{console.error('[whoop] sleep', e.message); return null;}),
           whFetch('/cycle?limit=25', t).catch((e)=>{console.error('[whoop] cycle', e.message); return null;}),
+          whFetch('/activity/workout?limit=25', t).catch((e)=>{console.error('[whoop] workout', e.message); return null;}),
         ]);
 
         let recScore = null, hrv = null, rhr = null, skin = null, spo2 = null;
@@ -883,6 +884,24 @@ main {
           const cutoff = Date.now() - 120*864e5;
           Object.keys(daily).forEach(k => { const tt = new Date(k+'T12:00:00').getTime(); if (isFinite(tt) && tt < cutoff) delete daily[k]; });
           localStorage.setItem('whoop:daily', JSON.stringify(daily));
+
+          // workouts (for the Fitness page "WHOOP Workouts" card)
+          const wkts = ((workout && workout.records) || []).map(w => {
+            const sc = w.score || {};
+            const zd = sc.zone_durations || sc.zone_duration || {};
+            const zones = ['zone_zero_milli','zone_one_milli','zone_two_milli','zone_three_milli','zone_four_milli','zone_five_milli'].map(z => zd[z] || 0);
+            return {
+              start: w.start, end: w.end,
+              sport: w.sport_name || (w.sport_id != null ? ('Sport ' + w.sport_id) : 'Workout'),
+              strain: sc.strain != null ? Number(sc.strain) : null,
+              avgHr: sc.average_heart_rate || null,
+              maxHr: sc.max_heart_rate || null,
+              kcal: sc.kilojoule != null ? Math.round(sc.kilojoule / 4.184) : null,
+              distance: sc.distance_meter || null,
+              zones: zones
+            };
+          }).filter(w => w.start);
+          if (wkts.length) localStorage.setItem('whoop:workouts', JSON.stringify(wkts));
         } catch (e) {}
 
         const now = new Date();
