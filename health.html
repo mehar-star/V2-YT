@@ -768,9 +768,9 @@ main {
       showErr('');
       try {
         const [rec, sleep, cycle] = await Promise.all([
-          whFetch('/recovery?limit=1', t).catch((e)=>{console.error('[whoop] recovery', e.message); return null;}),
-          whFetch('/activity/sleep?limit=1', t).catch((e)=>{console.error('[whoop] sleep', e.message); return null;}),
-          whFetch('/cycle?limit=1', t).catch((e)=>{console.error('[whoop] cycle', e.message); return null;}),
+          whFetch('/recovery?limit=25', t).catch((e)=>{console.error('[whoop] recovery', e.message); return null;}),
+          whFetch('/activity/sleep?limit=25', t).catch((e)=>{console.error('[whoop] sleep', e.message); return null;}),
+          whFetch('/cycle?limit=25', t).catch((e)=>{console.error('[whoop] cycle', e.message); return null;}),
         ]);
 
         let recScore = null, hrv = null, rhr = null, skin = null, spo2 = null;
@@ -797,7 +797,8 @@ main {
 
         // Sleep
         let sleepPerf = null, sleepDuration = null, resp = null;
-        const s0 = sleep && sleep.records && sleep.records[0];
+        const sRecs = (sleep && sleep.records) || [];
+        const s0 = sRecs.find(x => x && !x.nap) || sRecs[0];
         if (s0 && s0.score) {
           sleepPerf = Math.round(s0.score.sleep_performance_percentage || 0);
           resp = s0.score.respiratory_rate != null ? Number(s0.score.respiratory_rate).toFixed(1) : null;
@@ -871,6 +872,18 @@ main {
           if (rhr != null)      reasons.push((rhr <= 60 ? '✓' : '·') + ' RHR ' + rhr + 'bpm — ' + (rhr <= 60 ? 'well-conditioned.' : 'elevated.'));
           $('whVerdictReasons').innerHTML = reasons.join('<br>');
         }
+
+        // ---- cache rolling daily history (for the Insights / Recovery Impact view) ----
+        try {
+          const daily = JSON.parse(localStorage.getItem('whoop:daily') || '{}') || {};
+          const dk = (iso) => { const d = new Date(iso); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
+          ((rec && rec.records) || []).forEach(r => { if (r && r.created_at && r.score && r.score.recovery_score != null) { const k = dk(r.created_at); (daily[k] = daily[k] || {}).recovery = Math.round(r.score.recovery_score); } });
+          ((sleep && sleep.records) || []).forEach(s => { if (s && !s.nap && (s.end || s.start) && s.score && s.score.sleep_performance_percentage != null) { const k = dk(s.end || s.start); (daily[k] = daily[k] || {}).sleepPerf = Math.round(s.score.sleep_performance_percentage); } });
+          ((cycle && cycle.records) || []).forEach(c => { if (c && c.start && c.score && c.score.strain != null) { const k = dk(c.start); (daily[k] = daily[k] || {}).strain = Number(c.score.strain); } });
+          const cutoff = Date.now() - 120*864e5;
+          Object.keys(daily).forEach(k => { const tt = new Date(k+'T12:00:00').getTime(); if (isFinite(tt) && tt < cutoff) delete daily[k]; });
+          localStorage.setItem('whoop:daily', JSON.stringify(daily));
+        } catch (e) {}
 
         const now = new Date();
         $('whUpdated').textContent = 'Updated ' + now.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });

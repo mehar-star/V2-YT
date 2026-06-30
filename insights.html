@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="lock.js"></script>
+<script src="/api/config"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0b">
+<title>Insights — Mehar's Health Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sync.js" defer></script>
+<script src="topbar.js" defer></script>
+<style>
+  :root {
+    --bg:#0a0a0b; --bg-card:#111113;
+    --text-1:#fff; --text-2:rgba(255,255,255,0.6); --text-3:rgba(255,255,255,0.4); --text-4:rgba(255,255,255,0.25);
+    --border:rgba(255,255,255,0.06); --border-strong:rgba(255,255,255,0.12);
+    --good:#16e08a; --hurt:#F2A33C;
+    --font:-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    --font-mono:ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; padding:0; background:radial-gradient(ellipse 80% 60% at 50% 0%, #14141a 0%, #0a0a0b 60%); color:var(--text-1); font-family:var(--font); -webkit-font-smoothing:antialiased; min-height:100vh; }
+  .page { max-width:720px; margin:0 auto; padding:22px 16px 40px; }
+
+  .eyebrow { font-family:var(--font-mono); font-size:11px; font-weight:700; letter-spacing:0.18em; text-transform:uppercase; color:var(--text-3); }
+  .title { font-size:26px; font-weight:700; letter-spacing:-0.02em; margin:6px 0 8px; }
+  .sub { font-size:13px; color:var(--text-3); line-height:1.5; margin-bottom:20px; }
+
+  /* HURTS | % IMPACT | HELPS header */
+  .legend { display:flex; align-items:center; justify-content:space-between; padding:0 2px; margin-bottom:10px; }
+  .legend .l-hurt { color:var(--hurt); font-size:11px; font-weight:800; letter-spacing:0.1em; display:inline-flex; align-items:center; gap:5px; }
+  .legend .l-mid { color:var(--text-3); font-size:11px; font-weight:700; letter-spacing:0.1em; }
+  .legend .l-help { color:var(--good); font-size:11px; font-weight:800; letter-spacing:0.1em; display:inline-flex; align-items:center; gap:5px; }
+
+  .ins-row {
+    background:rgba(255,255,255,0.03);
+    border:1px solid var(--border);
+    border-radius:12px; padding:14px 14px 12px; margin-bottom:8px;
+  }
+  .ins-row-top { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+  .ins-name { font-size:14.5px; font-weight:600; display:inline-flex; align-items:center; gap:8px; }
+  .ins-name .ins-emoji { font-size:16px; }
+  .ins-impact { font-family:var(--font-mono); font-size:14px; font-weight:800; font-variant-numeric:tabular-nums; flex-shrink:0; }
+  .ins-impact.help { color:var(--good); }
+  .ins-impact.hurt { color:var(--hurt); }
+
+  /* center-origin bar */
+  .ins-bar { position:relative; height:8px; border-radius:99px;
+    background:repeating-linear-gradient(135deg, rgba(255,255,255,0.05) 0 6px, transparent 6px 12px);
+    overflow:hidden; }
+  .ins-bar-mid { position:absolute; left:50%; top:-2px; bottom:-2px; width:1px; background:rgba(255,255,255,0.35); }
+  .ins-bar-fill { position:absolute; top:0; bottom:0; border-radius:99px; }
+  .ins-bar-fill.help { left:50%; background:var(--good); }
+  .ins-bar-fill.hurt { right:50%; background:var(--hurt); }
+
+  .ins-section-label { font-size:11px; font-weight:800; letter-spacing:0.14em; text-transform:uppercase; color:var(--text-2); margin:26px 0 6px; }
+  .ins-section-sub { font-size:12.5px; color:var(--text-3); line-height:1.5; margin-bottom:14px; }
+
+  .lock-row {
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    background:rgba(255,255,255,0.02); border:1px solid var(--border);
+    border-radius:12px; padding:14px; margin-bottom:8px;
+  }
+  .lock-name { font-size:14px; font-weight:600; color:var(--text-2); display:inline-flex; align-items:center; gap:8px; }
+  .lock-counts { display:flex; gap:8px; flex-shrink:0; }
+  .lock-pill { display:inline-flex; align-items:center; gap:4px; font-family:var(--font-mono); font-size:12px; font-weight:700; color:var(--text-2); padding:3px 8px; border-radius:8px; border:1px solid var(--border-strong); }
+  .lock-pill .lp-x { color:var(--hurt); }
+  .lock-pill .lp-v { color:var(--good); }
+
+  .ins-empty { text-align:center; padding:28px 18px; color:var(--text-3); font-size:13.5px; line-height:1.6;
+    border:1px dashed var(--border-strong); border-radius:14px; }
+  .ins-empty a { color:var(--good); text-decoration:none; font-weight:600; }
+  .ins-foot { font-size:11px; color:var(--text-4); line-height:1.5; margin-top:18px; }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="eyebrow">Behavior Insights</div>
+  <h1 class="title">Recovery Impact</h1>
+  <div class="sub" id="insSub">How your logged behaviors line up with your WHOOP recovery. Needs at least 5 yes and 5 no days each to unlock a behavior.</div>
+
+  <div id="insBody"></div>
+
+  <div class="ins-foot" id="insFoot"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  function get(k){ try { return JSON.parse(localStorage.getItem(k)); } catch(e){ return null; } }
+  function pad2(n){ return n<10?('0'+n):(''+n); }
+  function dk(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
+  function shift(dateStr, n){ const p=dateStr.split('-'); const d=new Date(+p[0],+p[1]-1,+p[2]); d.setDate(d.getDate()+n); return dk(d); }
+  function avg(a){ return a.length ? a.reduce((s,x)=>s+x,0)/a.length : 0; }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  const MIN_EACH = 5; // need >=5 yes AND >=5 no to unlock (matches WHOOP)
+
+  // ---- WHOOP daily history (recovery / sleepPerf / strain), cached by health.html ----
+  const daily = get('whoop:daily') || {};
+  function recoveryOn(dateStr){ const d=daily[dateStr]; return d && typeof d.recovery==='number' ? d.recovery : null; }
+
+  // ---- water target (same formula as the water tracker) ----
+  function waterTarget(){
+    const s = get('po_water_v1') || {};
+    const p = s.profile || { weightKg:75 };
+    const wKg = s.weightUnit==='lb' ? (p.weightKg||0)/2.20462 : (p.weightKg||0);
+    const base = wKg*35;
+    const ex = (p.activityHrsPerWeek||0)/7*500;
+    const caf = Math.max(0,(s.caffeineMgPerDay||0)-200)*1.5;
+    const subs = (s.substances||[]).reduce((a,x)=>a+Math.max(0,((x && x.dose!=null ? x.dose : (x && x.defaultDose))||0)*((x && x.mlPerUnit)||0)),0);
+    let adj=0; if(p.sex==='m')adj+=200; if((p.age||0)>=50)adj+=100;
+    const totalMl = base+ex+caf+subs+adj;
+    let uv; const u=s.unit; if(u==='glass')uv=s.glassMl||250; else if(u==='oz')uv=30; else if(u==='ml')uv=1; else uv=s.bottleMl||500;
+    return Math.max(1, Math.ceil(totalMl/uv));
+  }
+
+  // ---- gather per-day source data from the dashboard's own logs ----
+  const waterState = get('po_water_v1') || {};
+  const waterLogs = waterState.logs || {};                 // date -> count
+  const wTarget = waterTarget();
+
+  const stackItems = get('stack:items') || [];
+  const stackCount = Array.isArray(stackItems) ? stackItems.length : 0;
+  const takenByDate = {};                                  // date -> #taken
+  const journalByDate = {};                                // date -> behaviors map
+  const goalsDates = {};
+  for (let i=0;i<localStorage.length;i++){
+    const key = localStorage.key(i);
+    let m;
+    if ((m = /^stack:taken:(\d{4}-\d{2}-\d{2})$/.exec(key))) { const o=get(key)||{}; takenByDate[m[1]] = Object.keys(o).length; }
+    else if ((m = /^journal:(\d{4}-\d{2}-\d{2})$/.exec(key))) { const e=get(key)||{}; journalByDate[m[1]] = e.behaviors || {}; }
+    else if ((m = /^goals:(\d{4}-\d{2}-\d{2})$/.exec(key))) { goalsDates[m[1]] = true; }
+  }
+  const cafByDate = {};                                    // date -> total mg
+  (get('caf:logs') || []).forEach(l => { if(l && l.ts){ const k = dk(new Date(l.ts)); cafByDate[k] = (cafByDate[k]||0) + (l.mg||0); } });
+
+  // "active day" = any dashboard activity that day (used as the denominator for caffeine yes/no)
+  const activeDays = {};
+  Object.keys(waterLogs).forEach(d=>activeDays[d]=1);
+  Object.keys(takenByDate).forEach(d=>activeDays[d]=1);
+  Object.keys(journalByDate).forEach(d=>activeDays[d]=1);
+  Object.keys(cafByDate).forEach(d=>activeDays[d]=1);
+  Object.keys(goalsDates).forEach(d=>activeDays[d]=1);
+
+  // ---- behaviour definitions ----
+  // classify(date) => true (yes) / false (no) / null (not determinable that day)
+  // offset: correlate behaviour on day D with recovery on day D+offset
+  const behaviours = [
+    { key:'sleep80', label:'80%+ Sleep Performance', emoji:'😴', offset:0,
+      days:()=>Object.keys(daily).filter(d=>typeof daily[d].sleepPerf==='number'),
+      classify:(d)=> daily[d].sleepPerf>=80 },
+    { key:'strain14', label:'14+ Strain', emoji:'🔥', offset:1,
+      days:()=>Object.keys(daily).filter(d=>typeof daily[d].strain==='number'),
+      classify:(d)=> daily[d].strain>=14 },
+    { key:'water_goal', label:'Hit water goal', emoji:'💧', offset:1,
+      days:()=>Object.keys(waterLogs),
+      classify:(d)=> (waterLogs[d]||0) >= wTarget },
+    { key:'supps_all', label:'Took all supplements', emoji:'💊', offset:1,
+      days:()=>Object.keys(takenByDate),
+      classify:(d)=> stackCount>0 && (takenByDate[d]||0) >= stackCount },
+    { key:'caffeine', label:'Had caffeine', emoji:'☕', offset:1,
+      days:()=>Object.keys(activeDays),
+      classify:(d)=> (cafByDate[d]||0) > 0 }
+  ];
+
+  // dynamic journal behaviours
+  const beh = get('journal:behaviors') || [];
+  beh.forEach(b => {
+    behaviours.push({
+      key:'j_'+b.key, label:b.label||b.key, emoji:b.emoji||'•', offset:1,
+      days:()=>Object.keys(journalByDate),
+      classify:(d)=>{ const v = journalByDate[d][b.key]; return v!=null && v!==false; }
+    });
+  });
+
+  // ---- compute impact for each behaviour ----
+  function compute(bdef){
+    const yes=[], no=[];
+    bdef.days().forEach(d=>{
+      const rec = recoveryOn(shift(d, bdef.offset));
+      if (rec==null) return;
+      const v = bdef.classify(d);
+      if (v===true) yes.push(rec); else if (v===false) no.push(rec);
+    });
+    const yN=yes.length, nN=no.length;
+    const unlocked = yN>=MIN_EACH && nN>=MIN_EACH;
+    const impact = unlocked ? Math.round(avg(yes)-avg(no)) : null;
+    return { def:bdef, yN, nN, unlocked, impact };
+  }
+
+  const results = behaviours.map(compute);
+  const haveRecovery = Object.keys(daily).some(d=>typeof daily[d].recovery==='number');
+
+  // ---- render ----
+  const body = document.getElementById('insBody');
+  const foot = document.getElementById('insFoot');
+
+  if (!haveRecovery){
+    body.innerHTML = '<div class="ins-empty">No WHOOP recovery history yet.<br><br>Open the <a href="health.html">Health page</a> while connected to WHOOP — it syncs your last ~25 days of recovery, sleep and strain. Then come back here.</div>';
+    return;
+  }
+
+  const unlocked = results.filter(r=>r.unlocked).sort((a,b)=>b.impact-a.impact);
+  const locked = results.filter(r=>!r.unlocked).sort((a,b)=>(b.yN+b.nN)-(a.yN+a.nN));
+
+  let html = '';
+
+  if (unlocked.length){
+    html += '<div class="legend"><span class="l-hurt">▼ HURTS</span><span class="l-mid">% IMPACT</span><span class="l-help">HELPS ▲</span></div>';
+    const maxAbs = Math.max(15, ...unlocked.map(r=>Math.abs(r.impact)));
+    unlocked.forEach(r=>{
+      const help = r.impact >= 0;
+      const pct = Math.min(50, Math.abs(r.impact)/maxAbs*50);
+      html += '<div class="ins-row">'
+        + '<div class="ins-row-top">'
+        +   '<span class="ins-name"><span class="ins-emoji">'+esc(r.def.emoji)+'</span>'+esc(r.def.label)+'</span>'
+        +   '<span class="ins-impact '+(help?'help':'hurt')+'">'+(help?'+':'−')+Math.abs(r.impact)+'%</span>'
+        + '</div>'
+        + '<div class="ins-bar"><div class="ins-bar-mid"></div>'
+        +   '<div class="ins-bar-fill '+(help?'help':'hurt')+'" style="width:'+pct.toFixed(1)+'%"></div>'
+        + '</div></div>';
+    });
+  } else {
+    html += '<div class="ins-empty">No behaviors unlocked yet. WHOOP sleep &amp; strain unlock once you have ~5 high and ~5 low days of history; your logged habits unlock as you record more days.</div>';
+  }
+
+  if (locked.length){
+    html += '<div class="ins-section-label">Keep logging to unlock</div>';
+    html += '<div class="ins-section-sub">Record at least '+MIN_EACH+" yes's and no's in a behavior to see how it impacts your recovery.</div>";
+    locked.forEach(r=>{
+      html += '<div class="lock-row">'
+        + '<span class="lock-name"><span class="ins-emoji">'+esc(r.def.emoji)+'</span>'+esc(r.def.label)+'</span>'
+        + '<span class="lock-counts">'
+        +   '<span class="lock-pill"><span class="lp-x">✕</span> '+r.nN+'</span>'
+        +   '<span class="lock-pill"><span class="lp-v">✓</span> '+r.yN+'</span>'
+        + '</span></div>';
+    });
+  }
+
+  body.innerHTML = html;
+
+  const recDays = Object.keys(daily).filter(d=>typeof daily[d].recovery==='number').length;
+  foot.textContent = 'Based on ' + recDays + ' days of WHOOP recovery. Lifestyle behaviors are compared against next-day recovery; sleep performance against same-day recovery. Correlation, not causation.';
+})();
+</script>
+
+</body>
+</html>
